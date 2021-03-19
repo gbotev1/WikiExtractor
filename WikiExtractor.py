@@ -74,7 +74,7 @@ ignored_tags = [
     'p', 'plaintext', 's', 'small', 'span', 'strike', 'strong',
     'sub', 'sup', 'tt', 'u', 'var',
 ]
-placeholder_tags = {'math': '*****', 'code': 'codice'}
+placeholder_tags = {'math': '<<MATH>>', 'code': '<<CODE>>'}
 
 # REGEXES
 PREFORMATTED = re.compile(r'^ .*?$', re.MULTILINE)
@@ -87,7 +87,7 @@ ITALIC = re.compile(r"''([^']*)''")
 QUOTE_QUOTE = re.compile(r'""(.*?)""')
 SPACES = re.compile(r' {2,}')
 DOTS = re.compile(r'\.{4,}')
-PARAMETRIZED_LINK = re.compile(r'\[\[.*?]]')
+PARAMETRIZED_LINK = re.compile(r'(\[\[.*\|)|(]])')
 COMMENT = re.compile(r'<!--.*?-->', re.DOTALL)
 TAGS = re.compile(r'(.*?)<(/?\w+)[^>]*>(?:([^<]*)(<.*?>)?)?')
 TITLE = re.compile(r'[\s_]+')
@@ -97,6 +97,11 @@ CLEANUP_1 = re.compile(r' (,:\.\)]Â»)')
 CLEANUP_2 = re.compile(r'(\[\(Â«) ')
 CLEANUP_3 = re.compile(r'\n\W+?\n')
 CLEANUP_4 = re.compile(r'__[A-Z]+__')
+CLEANUP_5 = re.compile(r'(?<=\() - (?=.*\))')
+CLEANUP_PLACEHOLDER_TAGS = re.compile(r'<<(MATH|CODE)>>_\d*\b')
+CLEANUP_QUOTES = re.compile(r'[\u2018-\u201f]')
+# Matches non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, two-em dash, and three-em dash
+DASHES = re.compile(r'[\u2011-\u2015⸺⸻]')
 # Match inter-wiki links, | separates parameters.
 # First parameter is displayed, also trailing concatenated text included in display, e.g. s for plural.
 # Can be nested [[File:..|..[[..]]..|..]], [[Category:...]], etc.
@@ -258,7 +263,7 @@ def clean(text: str) -> str:
 
     # Expand links
     text = WIKI_LINK.sub(make_anchor_tag, text)
-    # Drop all remaining ones
+    # Drop all remaining ones (except link text)
     text = PARAMETRIZED_LINK.sub('', text)
 
     # Handle external links
@@ -309,7 +314,7 @@ def clean(text: str) -> str:
         for i, match in enumerate(pattern_shadow.finditer(text)):
             text = text.replace(match.group(), f'{placeholder}_{i + 1}')
 
-    text = text.replace('<<', 'Â«').replace('>>', 'Â»')
+    # text = text.replace('<<', 'Â«').replace('>>', 'Â»')
 
     # Drop preformatted: this can't be done before since it may remove tags
     text = PREFORMATTED.sub('', text)
@@ -324,6 +329,11 @@ def clean(text: str) -> str:
     text = text.replace(',,', ',').replace(',.', '.')
     text = CLEANUP_4.sub('', text)
     # Add other filters here
+    text = text.replace(u'\xa0', ' ')  # Replace NBSP with regular space
+    text = DASHES.sub('-', text)  # Replace all dash varieties with `-`
+    text = CLEANUP_5.sub('', text)  # Transform instances of `( - [text])` into `([text])`
+    text = CLEANUP_PLACEHOLDER_TAGS.sub('', text)  # Remove all placeholder tags (math/code)
+    text = CLEANUP_QUOTES.sub('"', text)  # Normalize quotation characters with `"`
     return text
 
 
