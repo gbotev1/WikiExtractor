@@ -53,8 +53,6 @@ counter = 0
 # This is obtained from the dump itself.
 prefix = None
 
-accepted_namespaces = {'w'}  # w: Internal links to the Wikipedia
-
 # Drop these elements from article text
 discard_elements = {'gallery', 'timeline', 'noinclude', 'pre', 'table', 'tr', 'td', 'th', 'caption', 'form', 'input',
                     'select', 'option', 'textarea', 'ul', 'li', 'ol', 'dl', 'dt', 'dd', 'menu', 'dir', 'ref',
@@ -93,13 +91,18 @@ TAGS = re.compile(r'(.*?)<(/?\w+)[^>]*>(?:([^<]*)(<.*?>)?)?')
 TITLE = re.compile(r'[\s_]+')
 TITLE_MATCH = re.compile(r'([^:]*):(\s*)(\S(?:.*))')
 SECTION = re.compile(r'(==+)\s*(.*?)\s*\1')
-CLEANUP_1 = re.compile(r' (,:\.\)]Â»)')
-CLEANUP_2 = re.compile(r'(\[\(Â«) ')
-CLEANUP_3 = re.compile(r'\n\W+?\n')
-CLEANUP_4 = re.compile(r'__[A-Z]+__')
-CLEANUP_5 = re.compile(r'(?<=\() - (?=.*\))')
-CLEANUP_PLACEHOLDER_TAGS = re.compile(r'<<(MATH|CODE)>>_\d*\b')
+CLEANUP_1 = re.compile(r'\n\W+?\n')
+CLEANUP_2 = re.compile(r'__[A-Z]+__')
+CLEANUP_3 = re.compile(r'(?<=\() - (?=.*\))')
+CLEANUP_COMMAS = re.compile(r',{2,}')
+CLEANUP_PLACEHOLDER_TAGS = re.compile(r'<<(MATH|CODE)>>_\d*')
 CLEANUP_QUOTES = re.compile(r'[\u2018-\u201f]')
+CLEANUP_DUPLICATE_QUOTES = re.compile(r'\"{2,}')
+CLEANUP_EMPTY_BRACKETS = re.compile(r'(\(\))|(\[])')
+CLEANUP_EMPTY_COMMAS = re.compile(r',( ,)+')
+CLEANUP_LONE_COMMA_LEFT = re.compile(r'\s?,\s?\)')
+CLEANUP_LONE_COMMA_RIGHT = re.compile(r'\(\s?,\s?')
+CLEANUP_BAD_LINKS = re.compile(r'\n(.+\|.+)+?\n')
 # Matches non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, two-em dash, and three-em dash
 DASHES = re.compile(r'[\u2011-\u2015⸺⸻]')
 # Match inter-wiki links, | separates parameters.
@@ -114,7 +117,6 @@ def normalize_title(title: str) -> str:
     title = title.strip(' _')
     # Replace sequences of whitespace and underscore chars with a single space
     title = TITLE.sub(' ', title)
-
     m = TITLE_MATCH.match(title)
     if m:
         prefix_shadow = m.group(1)
@@ -123,27 +125,10 @@ def normalize_title(title: str) -> str:
         else:
             optional_whitespace = ''
         rest = m.group(3)
-
-        ns = prefix_shadow.capitalize()
-        if ns in accepted_namespaces:
-            # If the prefix designates a known namespace, then it might be
-            # followed by optional whitespace that should be removed to get
-            # the canonical page name
-            # (e.g., "Category:  Births" should become "Category:Births").
-            title = ns + ":" + rest.capitalize()
-        else:
-            # No namespace, just capitalize first letter.
-            # If the part before the colon is not a known namespace, then we must
-            # not remove the space after the colon (if any), e.g.,
-            # "3001: The_Final_Odyssey" != "3001:The_Final_Odyssey".
-            # However, to get the canonical page name we must contract multiple
-            # spaces into one, because
-            # "3001:   The_Final_Odyssey" != "3001: The_Final_Odyssey".
-            title = prefix_shadow.capitalize() + ":" + optional_whitespace + rest
+        return f'{prefix_shadow.capitalize()}:{optional_whitespace}{rest}'
     else:
         # No namespace, so just capitalize first letter
-        title = title.capitalize()
-    return title
+        return title.capitalize()
 
 
 # Removes HTML or XML character references and entities from a text string.
@@ -153,9 +138,9 @@ def unescape(text: str) -> str:
     def fixup(m: re.Match) -> str:
         text_inner = m.group(0)
         code = m.group(1)
-        if text_inner[1] == "#":
+        if text_inner[1] == '#':
             # Character reference
-            if text_inner[2] == "x":
+            if text_inner[2] == 'x':
                 return chr(int(code[1:], 16))
             else:
                 return chr(int(code))
@@ -241,9 +226,6 @@ def drop_spans(matches, text: str) -> str:
 def make_anchor_tag(match: re.Match) -> str:
     """Function applied to WIKI_LINK's."""
     link = match.group(1)
-    colon = link.find(':')
-    if colon > 0 and link[:colon] not in accepted_namespaces:
-        return ''
     trail = match.group(3)
     anchor = match.group(2)
     if not anchor:
@@ -314,34 +296,49 @@ def clean(text: str) -> str:
         for i, match in enumerate(pattern_shadow.finditer(text)):
             text = text.replace(match.group(), f'{placeholder}_{i + 1}')
 
-    # text = text.replace('<<', 'Â«').replace('>>', 'Â»')
-
     # Drop preformatted: this can't be done before since it may remove tags
     text = PREFORMATTED.sub('', text)
 
     # Cleanup text
-    text = text.replace('\t', ' ')
-    text = SPACES.sub(' ', text)
-    text = DOTS.sub('...', text)
-    text = re.sub(CLEANUP_1, r'\1', text)
-    text = re.sub(CLEANUP_2, r'\1', text)
-    text = re.sub(CLEANUP_3, '\n', text)  # Lines with only punctuation
-    text = text.replace(',,', ',').replace(',.', '.')
-    text = CLEANUP_4.sub('', text)
-    # Add other filters here
+    # One-time
+    text = text.replace('\t', ' ')  # Replace TAB with space
     text = text.replace(u'\xa0', ' ')  # Replace NBSP with regular space
     text = DASHES.sub('-', text)  # Replace all dash varieties with `-`
-    text = CLEANUP_5.sub('', text)  # Transform instances of `( - [text])` into `([text])`
-    text = CLEANUP_PLACEHOLDER_TAGS.sub('', text)  # Remove all placeholder tags (math/code)
     text = CLEANUP_QUOTES.sub('"', text)  # Normalize quotation characters with `"`
+    text = CLEANUP_BAD_LINKS.sub('', text)  # Remove bad links of form `...|...|...` (etc)
+    text = CLEANUP_PLACEHOLDER_TAGS.sub('', text)  # Remove all placeholder tags (math/code)
+    # Repeat until no change
+    old_text_len = -1
+    new_text_len = 0
+    while old_text_len != new_text_len:  # Always enter at least once!
+        # Update old text length
+        old_text_len = len(text)
+        text = SPACES.sub(' ', text)  # Replace more than 2 spaces with 1
+        text = DOTS.sub('...', text)  # Replace more than 4 dots with 3
+        text = CLEANUP_1.sub('\n', text)  # Lines with only punctuation
+        text = CLEANUP_2.sub('', text)
+        text = CLEANUP_3.sub('', text)  # Transform instances of `( - [text])` into `([text])`
+        # Replace 2 or more quotes with a singular one (regardless of context)
+        text = CLEANUP_DUPLICATE_QUOTES.sub('"', text)
+        text = CLEANUP_EMPTY_BRACKETS.sub('', text)  # Remove empty bracket statements
+        text = text.replace('..', '.')  # Reduce two periods to a singular one
+        text = CLEANUP_COMMAS.sub(',', text).replace(',.', '.').replace('.,.', '.')  # Fix weird comma patterns
+        text = CLEANUP_EMPTY_COMMAS.sub(',', text)  # Replace empty comma-delimited expressions with a singular comma
+        # Remove lone, dangling commas inside parenthetical statements
+        text = CLEANUP_LONE_COMMA_LEFT.sub('(', text)
+        text = CLEANUP_LONE_COMMA_RIGHT.sub(')', text)
+        text = text.replace(' .', '.')  # Re-space spaced periods
+        text = text.replace(' ,', ',')  # Re-space spaced commas
+        # Update new text length
+        new_text_len = len(text)
     return text
 
 
 def compact(text: str, structure: bool = False) -> list[str]:
     """Deal with headers, lists, empty sections, residuals of tables."""
-    page = []  # list of paragraph
+    page = []  # List of paragraphs
     headers = {}  # Headers for unfilled sections
-    empty_section = False  # empty sections are discarded
+    empty_section = False  # Empty sections are discarded
 
     for line in text.split('\n'):
         if not line:
@@ -352,7 +349,7 @@ def compact(text: str, structure: bool = False) -> list[str]:
             title = m.group(2)
             lev = len(m.group(1))
             if structure:
-                page.append("<h%d>%s</h%d>" % (lev, title, lev))
+                page.append(f'<h{lev}>{title}</h{lev}>')
             if title and title[-1] not in '!?':
                 title += '.'
             headers[lev] = title
@@ -372,7 +369,7 @@ def compact(text: str, structure: bool = False) -> list[str]:
         # handle lists
         elif line[0] in '*#:;':
             if structure:
-                page.append("<li>%s</li>" % line[1:])
+                page.append(f'<li>{line[1:]}</li>')
             else:
                 continue
         # Drop residuals of lists
@@ -387,7 +384,7 @@ def compact(text: str, structure: bool = False) -> list[str]:
             for (i, v) in items:
                 page.append(v)
             headers.clear()
-            page.append(line)  # first line
+            page.append(line)  # First line
             empty_section = False
         elif not empty_section:
             page.append(line)
@@ -452,7 +449,7 @@ def process_data(file_type: str, input_shadow, output_sentences) -> None:
             page.append(line)
         elif tag_shadow == '/page':
             colon = title.find(':')
-            if (colon < 0 or title[:colon] in accepted_namespaces) and not redirect:
+            if colon < 0 and not redirect:
                 wiki_document_sentences(output_sentences, title, ''.join(page))
             id_shadow = None
             page = []
@@ -460,7 +457,7 @@ def process_data(file_type: str, input_shadow, output_sentences) -> None:
             # discover prefix from the xml dump file
             # /mediawiki/siteinfo/base
             base = m.group(3)
-            prefix = base[:base.rfind("/")]
+            prefix = base[:base.rfind('/')]
 
 
 def init() -> None:
