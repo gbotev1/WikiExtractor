@@ -46,6 +46,7 @@ from os import path
 from html.entities import name2codepoint
 from argparse import ArgumentParser
 from typing import TextIO
+from string import punctuation
 
 # For status updates
 counter = 0
@@ -85,24 +86,24 @@ ITALIC = re.compile(r"''([^']*)''")
 QUOTE_QUOTE = re.compile(r'""(.*?)""')
 SPACES = re.compile(r' {2,}')
 DOTS = re.compile(r'\.{4,}')
-PARAMETRIZED_LINK = re.compile(r'(\[\[.*\|)|(]])')
+PARAMETRIZED_LINK = re.compile(r'(?:\[\[.*\|)|(?:]])')
 COMMENT = re.compile(r'<!--.*?-->', re.DOTALL)
 TAGS = re.compile(r'(.*?)<(/?\w+)[^>]*>(?:([^<]*)(<.*?>)?)?')
 TITLE = re.compile(r'[\s_]+')
 TITLE_MATCH = re.compile(r'([^:]*):(\s*)(\S(?:.*))')
 SECTION = re.compile(r'(==+)\s*(.*?)\s*\1')
-CLEANUP_1 = re.compile(r'\n\W+?\n')
-CLEANUP_2 = re.compile(r'__[A-Z]+__')
-CLEANUP_3 = re.compile(r'(?<=\() - (?=.*\))')
-CLEANUP_COMMAS = re.compile(r',{2,}')
-CLEANUP_PLACEHOLDER_TAGS = re.compile(r'<<(MATH|CODE)>>_\d*')
-CLEANUP_QUOTES = re.compile(r'[\u2018-\u201f]')
-CLEANUP_DUPLICATE_QUOTES = re.compile(r'\"{2,}')
-CLEANUP_EMPTY_BRACKETS = re.compile(r'(\(\))|(\[])')
-CLEANUP_EMPTY_COMMAS = re.compile(r',( ,)+')
-CLEANUP_LONE_COMMA_LEFT = re.compile(r'\s?,\s?\)')
-CLEANUP_LONE_COMMA_RIGHT = re.compile(r'\(\s?,\s?')
-CLEANUP_BAD_LINKS = re.compile(r'\n(.+\|.+)+?\n')
+PUNCTUATION = re.compile(r'\n[{}]+?\n'.format(punctuation))  # More robust cross-lingual variant of `\W`
+UNDERSCORE_NAME = re.compile(r'__[^\d\W]+__')  # Non-digit + non-non-word = word + non-digit
+RIGHT_HEAVY_DASHED_PARENTHETICALS = re.compile(r'(?<=\() - (?=.*\))')
+COMMAS = re.compile(r',{2,}')
+PLACEHOLDER_TAGS = re.compile(r'<<(?:MATH|CODE)>>_\d*')
+QUOTES = re.compile(r'[\u2018-\u201f]')
+DUPLICATE_QUOTES = re.compile(r'\"{2,}')
+EMPTY_BRACKETS = re.compile(r'(?:\(\))|(?:\[])')
+EMPTY_COMMAS = re.compile(r',(?: ,)+')
+LONE_COMMA_LEFT = re.compile(r'\s?,\s?\)')
+LONE_COMMA_RIGHT = re.compile(r'\(\s?,\s?')
+BAD_LINKS = re.compile(r'(?:\n\w+?(?:\|.+?)+?\n)|(?:\n\w+?:.+?\n)')
 # Matches non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, two-em dash, and three-em dash
 DASHES = re.compile(r'[\u2011-\u2015⸺⸻]')
 # Match inter-wiki links, | separates parameters.
@@ -304,9 +305,8 @@ def clean(text: str) -> str:
     text = text.replace('\t', ' ')  # Replace TAB with space
     text = text.replace(u'\xa0', ' ')  # Replace NBSP with regular space
     text = DASHES.sub('-', text)  # Replace all dash varieties with `-`
-    text = CLEANUP_QUOTES.sub('"', text)  # Normalize quotation characters with `"`
-    text = CLEANUP_BAD_LINKS.sub('', text)  # Remove bad links of form `...|...|...` (etc)
-    text = CLEANUP_PLACEHOLDER_TAGS.sub('', text)  # Remove all placeholder tags (math/code)
+    text = QUOTES.sub('"', text)  # Normalize quotation characters with `"`
+    text = PLACEHOLDER_TAGS.sub('', text)  # Remove all placeholder tags (math/code)
     # Repeat until no change
     old_text_len = -1
     new_text_len = 0
@@ -315,18 +315,18 @@ def clean(text: str) -> str:
         old_text_len = len(text)
         text = SPACES.sub(' ', text)  # Replace more than 2 spaces with 1
         text = DOTS.sub('...', text)  # Replace more than 4 dots with 3
-        text = CLEANUP_1.sub('\n', text)  # Lines with only punctuation
-        text = CLEANUP_2.sub('', text)
-        text = CLEANUP_3.sub('', text)  # Transform instances of `( - [text])` into `([text])`
-        # Replace 2 or more quotes with a singular one (regardless of context)
-        text = CLEANUP_DUPLICATE_QUOTES.sub('"', text)
-        text = CLEANUP_EMPTY_BRACKETS.sub('', text)  # Remove empty bracket statements
+        text = PUNCTUATION.sub('\n', text)  # Lines with only punctuation
+        text = UNDERSCORE_NAME.sub('', text)  # Instances of form: `__[capital letter but not digit]__`
+        text = RIGHT_HEAVY_DASHED_PARENTHETICALS.sub('', text)  # Transform instances of `( - [text])` into `([text])`
+        text = BAD_LINKS.sub('', text)  # Remove bad links of form `...|...|...` (etc)
+        text = DUPLICATE_QUOTES.sub('"', text)  # Replace two or more consecutive quotes with just one
+        text = EMPTY_BRACKETS.sub('', text)  # Remove empty bracket statements
         text = text.replace('..', '.')  # Reduce two periods to a singular one
-        text = CLEANUP_COMMAS.sub(',', text).replace(',.', '.').replace('.,.', '.')  # Fix weird comma patterns
-        text = CLEANUP_EMPTY_COMMAS.sub(',', text)  # Replace empty comma-delimited expressions with a singular comma
+        text = COMMAS.sub(',', text).replace(',.', '.').replace('.,.', '.')  # Fix weird comma patterns
+        text = EMPTY_COMMAS.sub(',', text)  # Replace empty comma-delimited expressions with a singular comma
         # Remove lone, dangling commas inside parenthetical statements
-        text = CLEANUP_LONE_COMMA_LEFT.sub('(', text)
-        text = CLEANUP_LONE_COMMA_RIGHT.sub(')', text)
+        text = LONE_COMMA_LEFT.sub('(', text)
+        text = LONE_COMMA_RIGHT.sub(')', text)
         text = text.replace(' .', '.')  # Re-space spaced periods
         text = text.replace(' ,', ',')  # Re-space spaced commas
         # Update new text length
