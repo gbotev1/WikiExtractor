@@ -76,6 +76,7 @@ ignored_tags = [
 placeholder_tags = {'math': '<<MATH>>', 'code': '<<CODE>>'}
 
 # REGEXES
+UNESCAPE = re.compile(r'&#?(\w+);')
 PREFORMATTED = re.compile(r'^ .*?$', re.MULTILINE)
 EXTERNAL_LINK = re.compile(r'\[\w+.*? (.*?)]')  # Space separates second optional parameter
 EXTERNAL_LINK_NO_ANCHOR = re.compile(r'\[\w+[&\]]*]')
@@ -106,7 +107,6 @@ LONE_COMMA_RIGHT = re.compile(r'\(\s?,\s?')
 BAD_LINKS = re.compile(r'(?:\n\w+?(?:\|.+?)+?\n)|(?:\n\w+?:.+?\n)')
 # Matches non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, two-em dash, and three-em dash
 DASHES = re.compile(r'[\u2011-\u2015⸺⸻]')
-MULTIPLE_NEWLINES = re.compile(r'\n{2,}')
 # Match inter-wiki links, | separates parameters.
 # First parameter is displayed, also trailing concatenated text included in display, e.g. s for plural.
 # Can be nested [[File:..|..[[..]]..|..]], [[Category:...]], etc.
@@ -153,7 +153,7 @@ def unescape(text: str) -> str:
             # Leave as-is
             return text_inner
 
-    return re.sub(r'&#?(\w+);', fixup, text)
+    return UNESCAPE.sub(fixup, text)
 
 
 def drop_nested(text: str, open_delim: str, close_delim: str) -> str:
@@ -330,67 +330,59 @@ def clean(text: str) -> str:
         text = LONE_COMMA_RIGHT.sub(')', text)
         text = text.replace(' .', '.')  # Re-space spaced periods
         text = text.replace(' ,', ',')  # Re-space spaced commas
-        text = MULTIPLE_NEWLINES.sub('\n', text)  # Replace instances of two or more line feeds with a singular one
         # Update new text length
         new_text_len = len(text)
     return text
 
 
-def compact(text: str, structure: bool = False) -> list[str]:
+def compact(text: str) -> list[str]:
     """Deal with headers, lists, empty sections, residuals of tables."""
     page = []  # List of paragraphs
     headers = {}  # Headers for unfilled sections
     empty_section = False  # Empty sections are discarded
-
     for line in text.split('\n'):
         if not line:
             continue
-        # Handle section titles
-        m = SECTION.match(line)
-        if m:
-            title = m.group(2)
-            lev = len(m.group(1))
-            if structure:
-                page.append(f'<h{lev}>{title}</h{lev}>')
-            if title and title[-1] not in '!?':
-                title += '.'
-            headers[lev] = title
-            # drop previous headers
-            for i in list(headers.keys()):
-                if i > lev:
-                    del headers[i]
-            empty_section = True
-            continue
-        # Handle page title
-        if line.startswith('++'):
-            title = line[2:-2]
-            if title:
-                if title[-1] not in '!?':
-                    title += '.'
-                page.append(title)
-        # handle lists
-        elif line[0] in '*#:;':
-            if structure:
-                page.append(f'<li>{line[1:]}</li>')
-            else:
+        else:
+            # Handle section titles
+            m = SECTION.match(line)
+            if m:
+                title = m.group(2)
+                lev = len(m.group(1))
+                if title and title[-1] not in '!?':
+                    title = f'{title}.'
+                headers[lev] = title
+                # Drop previous headers
+                for i in list(headers.keys()):
+                    if i > lev:
+                        del headers[i]
+                empty_section = True
                 continue
-        # Drop residuals of lists
-        elif line[0] in '{|' or line[-1] in '}':
-            continue
-        # Drop irrelevant lines
-        elif (line[0] == '(' and line[-1] == ')') or line.strip('.-') == '':
-            continue
-        elif len(headers):
-            items = list(headers.items())
-            items.sort()
-            for (i, v) in items:
-                page.append(v)
-            headers.clear()
-            page.append(line)  # First line
-            empty_section = False
-        elif not empty_section:
-            page.append(line)
-
+            # Handle page title
+            if line.startswith('++'):
+                title = line[2:-2]
+                if title:
+                    if title[-1] not in '!?':
+                        title += '.'
+                    page.append(title)
+            # Handle lists
+            elif line[0] in '*#:;':
+                continue
+            # Drop residuals of lists
+            elif line[0] in '{|' or line[-1] in '}':
+                continue
+            # Drop irrelevant lines
+            elif (line[0] == '(' and line[-1] == ')') or line.strip('.-') == '':
+                continue
+            elif len(headers):
+                for _, v in sorted(headers.items(), key=lambda item: item[0]):
+                    if v:
+                        page.append(v)
+                headers.clear()
+                page.append(line)  # First line
+                empty_section = False
+            elif not empty_section:
+                page.append(line)
     return page
 
 
@@ -406,11 +398,9 @@ def wiki_document_sentences(outfile: TextIO, title: str, text: str) -> None:
     counter += 1
     if counter & ((1 << 14) - 1) == 0:
         # Check if counter is divisible by 2^14 efficiently and print status update
-        print(f'Finished processing {counter} articles.')
-    # Separate header from text with a newline.
-    text = clean(text)
+        print(f'...processed {counter} articles.')
     outfile.write(f'<<<{title}>>>\n')
-    for line in compact(text, structure=False):
+    for line in compact(clean(text)):
         outfile.write(f'{line}\n')
 
 
@@ -496,6 +486,8 @@ def main() -> None:
     parser.add_argument('-d', '--dir', type=str, default='data',
                         help='Change default data directory relative to this script.')
     args = parser.parse_args()
+
+    print('Started processing...')
 
     init()
 
