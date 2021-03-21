@@ -406,7 +406,7 @@ def wiki_document_sentences(outfile: TextIO, title: str, text: str) -> None:
     counter += 1
     if counter & ((1 << 14) - 1) == 0:
         # Check if counter is divisible by 2^14 efficiently and print status update
-        print(counter)
+        print(f'Finished processing {counter} articles.')
     # Separate header from text with a newline.
     text = clean(text)
     outfile.write(f'<<<{title}>>>\n')
