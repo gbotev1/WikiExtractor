@@ -44,7 +44,7 @@ from bz2 import BZ2File
 from mimetypes import guess_type
 from os import path
 from html.entities import name2codepoint
-from argparse import ArgumentParser
+from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
 from typing import TextIO
 from string import punctuation
 
@@ -106,6 +106,7 @@ LONE_COMMA_RIGHT = re.compile(r'\(\s?,\s?')
 BAD_LINKS = re.compile(r'(?:\n\w+?(?:\|.+?)+?\n)|(?:\n\w+?:.+?\n)')
 # Matches non-breaking hyphen, figure dash, en dash, em dash, horizontal bar, two-em dash, and three-em dash
 DASHES = re.compile(r'[\u2011-\u2015⸺⸻]')
+MULTIPLE_NEWLINES = re.compile(r'\n{2,}')
 # Match inter-wiki links, | separates parameters.
 # First parameter is displayed, also trailing concatenated text included in display, e.g. s for plural.
 # Can be nested [[File:..|..[[..]]..|..]], [[Category:...]], etc.
@@ -329,6 +330,7 @@ def clean(text: str) -> str:
         text = LONE_COMMA_RIGHT.sub(')', text)
         text = text.replace(' .', '.')  # Re-space spaced periods
         text = text.replace(' ,', ',')  # Re-space spaced commas
+        text = MULTIPLE_NEWLINES.sub('\n', text)  # Replace instances of two or more line feeds with a singular one
         # Update new text length
         new_text_len = len(text)
     return text
@@ -486,7 +488,7 @@ def init() -> None:
 
 
 def main() -> None:
-    parser = ArgumentParser(description='WikiExtractor')
+    parser = ArgumentParser(description='WikiExtractor', formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i', '--infile', type=str,
                         help='Path to the Wikipedia dump file (uncompressed or bzip2).')
     parser.add_argument('-o', '--outfile', type=str, default='wiki.txt',
@@ -497,12 +499,14 @@ def main() -> None:
 
     init()
 
+    infile_path = path.join(args.dir, args.infile)
+    outfile_path = path.join(args.dir, args.outfile)
     if 'bzip2' in guess_type(args.infile):
-        with open(path.join(args.dir, args.outfile), 'w') as outfile:
-            process_data('bzip2', BZ2File(args.infile), outfile)
+        with open(outfile_path, 'w') as outfile:
+            process_data('bzip2', BZ2File(infile_path), outfile)
     else:
-        with open(path.join(args.dir, args.infile)) as infile:
-            with open(path.join(args.dir, args.outfile), 'w') as outfile:
+        with open(infile_path) as infile:
+            with open(outfile_path, 'w') as outfile:
                 process_data('xml', infile, outfile)
 
 
