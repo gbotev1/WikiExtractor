@@ -39,14 +39,14 @@
 #  along with this program.  If not, see <http://www.gnu.org/licenses/>.
 # =============================================================================
 
-import re
-from bz2 import BZ2File
-from mimetypes import guess_type
-from os import path
-from html.entities import name2codepoint
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
-from typing import TextIO
+from bz2 import BZ2File
+from gzip import GzipFile
+from html.entities import name2codepoint
+from mimetypes import guess_type
 from string import punctuation
+from typing import TextIO
+import re
 
 # For status updates
 counter = 0
@@ -478,27 +478,29 @@ def init() -> None:
 
 
 def main() -> None:
-    parser = ArgumentParser(description='WikiExtractor', formatter_class=ArgumentDefaultsHelpFormatter)
+    parser = ArgumentParser(description='Converts a Wikipedia XML dump file to a textfile, extracting as much text as '
+                                        'possible.',
+                            formatter_class=ArgumentDefaultsHelpFormatter)
     parser.add_argument('-i', '--infile', type=str,
                         help='Path to the Wikipedia dump file (uncompressed or bzip2).')
     parser.add_argument('-o', '--outfile', type=str, default='wiki.txt',
-                        help='Output filename to save extracted Wikipedia dump text.')
-    parser.add_argument('-d', '--dir', type=str, default='data',
-                        help='Change default data directory relative to this script.')
+                        help='Path to the output file to save extracted Wikipedia dump text.')
     args = parser.parse_args()
 
     print('Started processing...')
 
     init()
 
-    infile_path = path.join(args.dir, args.infile)
-    outfile_path = path.join(args.dir, args.outfile)
-    if 'bzip2' in guess_type(args.infile):
-        with open(outfile_path, 'w') as outfile:
-            process_data('bzip2', BZ2File(infile_path), outfile)
+    file_type = guess_type(args.infile)
+    if 'bzip2' in file_type:
+        with open(args.outfile, 'w') as outfile:
+            process_data('bzip2', BZ2File(args.infile), outfile)
+    elif 'gzip' in file_type:
+        with open(args.outfile, 'w') as outfile:
+            process_data('gzip', GzipFile(args.infile), outfile)
     else:
-        with open(infile_path) as infile:
-            with open(outfile_path, 'w') as outfile:
+        with open(args.infile) as infile:
+            with open(args.outfile, 'w') as outfile:
                 process_data('xml', infile, outfile)
 
 
