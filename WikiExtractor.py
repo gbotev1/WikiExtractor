@@ -493,14 +493,14 @@ def main() -> None:
 
     file_type = guess_type(args.infile)
     if 'bzip2' in file_type:
-        with open(args.outfile, 'w') as outfile:
+        with open(args.outfile, 'w', encoding='utf-8') as outfile:
             process_data('bzip2', BZ2File(args.infile), outfile)
     elif 'gzip' in file_type:
-        with open(args.outfile, 'w') as outfile:
+        with open(args.outfile, 'w', encoding='utf-8') as outfile:
             process_data('gzip', GzipFile(args.infile), outfile)
     else:
-        with open(args.infile) as infile:
-            with open(args.outfile, 'w') as outfile:
+        with open(args.infile, encoding='utf-8') as infile:
+            with open(args.outfile, 'w', encoding='utf-8') as outfile:
                 process_data('xml', infile, outfile)
 
 
