@@ -398,7 +398,7 @@ def wiki_document_sentences(outfile: TextIO, title: str, text: str) -> None:
     counter += 1
     if counter & ((1 << 14) - 1) == 0:
         # Check if counter is divisible by 2^14 efficiently and print status update
-        print(f'...processed {counter} articles.')
+        print(f'...processed {counter:,} articles.')
     outfile.write(f'<<<{title}>>>\n')
     for line in compact(clean(text)):
         outfile.write(f'{line}\n')
