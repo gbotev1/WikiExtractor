@@ -86,6 +86,7 @@ ITALIC_QUOTE = re.compile(r"''\"(.*?)\"''")
 ITALIC = re.compile(r"''([^']*)''")
 QUOTE_QUOTE = re.compile(r'""(.*?)""')
 SPACES = re.compile(r' {2,}')
+WHITESPACE = re.compile(r'\s')
 DOTS = re.compile(r'\.{4,}')
 PARAMETRIZED_LINK = re.compile(r'(?:\[\[.*\|)|(?:]])')
 COMMENT = re.compile(r'<!--.*?-->', re.DOTALL)
@@ -303,18 +304,17 @@ def clean(text: str) -> str:
 
     # Cleanup text
     # One-time
-    text = text.replace('\t', ' ')  # Replace TAB with space
-    text = text.replace(u'\xa0', ' ')  # Replace NBSP with regular space
     text = DASHES.sub('-', text)  # Replace all dash varieties with `-`
     text = QUOTES.sub('"', text)  # Normalize quotation characters with `"`
     text = PLACEHOLDER_TAGS.sub('', text)  # Remove all placeholder tags (math/code)
+    text = WHITESPACE.sub(' ', text)  # Replace any whitespace character with a regular space
     # Repeat until no change
     old_text_len = -1
     new_text_len = 0
     while old_text_len != new_text_len:  # Always enter at least once!
         # Update old text length
         old_text_len = len(text)
-        text = SPACES.sub(' ', text)  # Replace more than 2 spaces with 1
+        text = SPACES.sub(' ', text)  # Substitute 1 space anywhere where there are 2 or more consecutive spaces
         text = DOTS.sub('...', text)  # Replace more than 4 dots with 3
         text = PUNCTUATION.sub('\n', text)  # Lines with only punctuation
         text = UNDERSCORE_NAME.sub('', text)  # Instances of form: `__[capital letter but not digit]__`
